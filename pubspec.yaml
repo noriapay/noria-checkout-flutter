@@ -1,0 +1,20 @@
+name: noria_checkout
+description: Noria hosted Checkout for Flutter applications.
+version: 0.1.0-beta.1
+publish_to: none
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+  flutter: ">=3.22.0"
+dependencies:
+  flutter:
+    sdk: flutter
+  app_links: 7.0.0
+  url_launcher: ^6.3.2
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+flutter:
+  uses-material-design: false
+  assets:
+    - assets/images/noria-wordmark.png
