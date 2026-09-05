@@ -1,14 +1,26 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:app_links/app_links.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
 typedef NoriaCreateSession = Future<NoriaCheckoutSession> Function();
 typedef NoriaCheckoutCallback = void Function(NoriaCheckoutResult result);
+typedef NoriaCheckoutLauncher = Future<bool> Function(
+  Uri uri, {
+  required LaunchMode mode,
+  String? webOnlyWindowName,
+});
+typedef NoriaCheckoutStatusReader = Future<String?> Function(
+  Uri statusUrl,
+  String clientSecret,
+);
+typedef NoriaCheckoutCloser = Future<void> Function();
 
 @immutable
 class NoriaCheckoutSession {
@@ -53,6 +65,11 @@ class NoriaCheckoutException implements Exception {
 
   @override
   String toString() => 'NoriaCheckoutException: $message';
+}
+
+class NoriaCheckoutCancelledException extends NoriaCheckoutException {
+  const NoriaCheckoutCancelledException()
+      : super('A espera pelo retorno anterior foi cancelada.');
 }
 
 enum NoriaCheckoutPresentation { inAppBrowser, redirect }
@@ -144,10 +161,169 @@ bool isVerifiedCheckoutReturn(
 }
 
 class NoriaCheckoutController {
-  NoriaCheckoutController({AppLinks? appLinks})
-      : _appLinks = appLinks ?? AppLinks();
+  NoriaCheckoutController({
+    AppLinks? appLinks,
+    Stream<Uri>? appLinkStream,
+    NoriaCheckoutLauncher? launcher,
+    NoriaCheckoutStatusReader? statusReader,
+    NoriaCheckoutCloser? closer,
+    this.pollInterval = const Duration(milliseconds: 1500),
+    this.maxConsecutivePollFailures = 5,
+  })  : assert(!pollInterval.isNegative),
+        assert(maxConsecutivePollFailures > 0),
+        _appLinkStream =
+            appLinkStream ?? (appLinks ?? AppLinks()).uriLinkStream,
+        _launcher = launcher ?? launchUrl,
+        _statusReader = statusReader ?? _readCheckoutStatus,
+        _closer = closer ?? _closeCheckoutBrowser;
 
-  final AppLinks _appLinks;
+  final Stream<Uri> _appLinkStream;
+  final NoriaCheckoutLauncher _launcher;
+  final NoriaCheckoutStatusReader _statusReader;
+  final NoriaCheckoutCloser _closer;
+  final Duration pollInterval;
+  final int maxConsecutivePollFailures;
+  StreamSubscription<Uri>? _activeSubscription;
+  Completer<NoriaCheckoutResult>? _activeCompletion;
+  int _generation = 0;
+
+  static Future<String?> _readCheckoutStatus(
+    Uri statusUrl,
+    String clientSecret,
+  ) async {
+    final http.Response response = await http.get(
+      statusUrl,
+      headers: <String, String>{
+        'X-Checkout-Secret': clientSecret,
+        'Cache-Control': 'no-store',
+      },
+    ).timeout(const Duration(seconds: 10));
+    if (response.statusCode == 401 || response.statusCode == 404) {
+      throw const NoriaCheckoutException(
+        'A sessão de pagamento não está disponível.',
+      );
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) return null;
+    final Object? decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, Object?> || decoded['status'] is! String) {
+      throw const NoriaCheckoutException(
+        'O Checkout retornou um estado inválido.',
+      );
+    }
+    final String status = decoded['status'] as String;
+    if (!const <String>{
+      'open',
+      'processing',
+      'completed',
+      'expired',
+      'cancelled',
+      'failed',
+    }.contains(status)) {
+      throw const NoriaCheckoutException(
+        'O Checkout retornou um estado inválido.',
+      );
+    }
+    return status;
+  }
+
+  static Future<void> _closeCheckoutBrowser() async {
+    if (await supportsCloseForLaunchMode(LaunchMode.inAppBrowserView)) {
+      await closeInAppWebView();
+    }
+  }
+
+  static Uri _statusUrlFor(
+    NoriaCheckoutSession session,
+    Uri expectedCheckoutOrigin,
+  ) {
+    return expectedCheckoutOrigin.replace(
+      path: '/v1/public/checkout-session/${session.sessionId}',
+      query: null,
+      fragment: null,
+    );
+  }
+
+  static NoriaCheckoutException _terminalStatusError(String status) {
+    return NoriaCheckoutException(
+      'O pagamento terminou com o estado $status.',
+    );
+  }
+
+  Future<void> cancelPending() async {
+    _generation++;
+    final StreamSubscription<Uri>? subscription = _activeSubscription;
+    final Completer<NoriaCheckoutResult>? completion = _activeCompletion;
+    _activeSubscription = null;
+    _activeCompletion = null;
+    await subscription?.cancel();
+    if (completion != null && !completion.isCompleted) {
+      completion.completeError(const NoriaCheckoutCancelledException());
+    }
+  }
+
+  Future<void> _pollStatus({
+    required NoriaCheckoutSession session,
+    required Uri expectedCheckoutOrigin,
+    required Completer<NoriaCheckoutResult> completion,
+    required int generation,
+  }) async {
+    final Uri statusUrl = _statusUrlFor(session, expectedCheckoutOrigin);
+    int failures = 0;
+    while (!completion.isCompleted && generation == _generation) {
+      try {
+        final String? status = await _statusReader(
+          statusUrl,
+          session.clientSecret,
+        );
+        if (generation != _generation || completion.isCompleted) return;
+        if (status == null) {
+          failures++;
+        } else {
+          failures = 0;
+        }
+        switch (status) {
+          case 'completed':
+            completion.complete(
+              NoriaCheckoutResult(sessionId: session.sessionId),
+            );
+            return;
+          case 'expired':
+          case 'cancelled':
+          case 'failed':
+            completion.completeError(_terminalStatusError(status!));
+            return;
+        }
+      } on NoriaCheckoutException catch (error) {
+        if (!completion.isCompleted && generation == _generation) {
+          completion.completeError(error);
+        }
+        return;
+      } catch (_) {
+        failures++;
+      }
+      if (failures >= maxConsecutivePollFailures) {
+        if (!completion.isCompleted && generation == _generation) {
+          completion.completeError(
+            const NoriaCheckoutException(
+              'Não foi possível acompanhar a confirmação do pagamento.',
+            ),
+          );
+        }
+        return;
+      }
+      if (DateTime.now().toUtc().isAfter(session.expiresAt)) {
+        if (!completion.isCompleted && generation == _generation) {
+          completion.completeError(
+            const NoriaCheckoutException(
+              'A sessão expirou antes da confirmação.',
+            ),
+          );
+        }
+        return;
+      }
+      await Future<void>.delayed(pollInterval);
+    }
+  }
 
   Future<NoriaCheckoutResult?> open({
     required NoriaCheckoutSession session,
@@ -155,6 +331,7 @@ class NoriaCheckoutController {
     required Uri returnUrl,
     NoriaCheckoutPresentation presentation =
         NoriaCheckoutPresentation.inAppBrowser,
+    VoidCallback? onOpened,
   }) async {
     final Uri checkoutUri = verifiedCheckoutUri(
       session,
@@ -164,8 +341,9 @@ class NoriaCheckoutController {
       throw const NoriaCheckoutException('returnUrl insegura.');
     }
     if (kIsWeb) {
-      final bool opened = await launchUrl(
+      final bool opened = await _launcher(
         checkoutUri,
+        mode: LaunchMode.platformDefault,
         webOnlyWindowName: presentation == NoriaCheckoutPresentation.redirect
             ? '_self'
             : '_blank',
@@ -175,15 +353,16 @@ class NoriaCheckoutController {
           'Não foi possível abrir o Checkout.',
         );
       }
-      // A aba do Flutter Web não fornece um retorno autenticável a esta
-      // Future. O app deve validar a URL de retorno e consultar o backend.
+      onOpened?.call();
       return null;
     }
 
+    await cancelPending();
+    final int generation = _generation;
     final Completer<NoriaCheckoutResult> completed =
         Completer<NoriaCheckoutResult>();
     late final StreamSubscription<Uri> subscription;
-    subscription = _appLinks.uriLinkStream.listen((Uri value) {
+    subscription = _appLinkStream.listen((Uri value) {
       if (!isVerifiedCheckoutReturn(
         value,
         expectedReturnUrl: returnUrl,
@@ -195,8 +374,10 @@ class NoriaCheckoutController {
         completed.complete(NoriaCheckoutResult(sessionId: session.sessionId));
       }
     });
+    _activeCompletion = completed;
+    _activeSubscription = subscription;
     try {
-      final bool opened = await launchUrl(
+      final bool opened = await _launcher(
         checkoutUri,
         mode: presentation == NoriaCheckoutPresentation.redirect
             ? LaunchMode.externalApplication
@@ -207,6 +388,15 @@ class NoriaCheckoutController {
           'Não foi possível abrir o Checkout.',
         );
       }
+      onOpened?.call();
+      unawaited(
+        _pollStatus(
+          session: session,
+          expectedCheckoutOrigin: expectedCheckoutOrigin,
+          completion: completed,
+          generation: generation,
+        ),
+      );
       final Duration untilExpiry = session.expiresAt.difference(
         DateTime.now().toUtc(),
       );
@@ -215,13 +405,26 @@ class NoriaCheckoutController {
           : untilExpiry > const Duration(hours: 24)
               ? const Duration(hours: 24)
               : untilExpiry;
-      return await completed.future.timeout(
+      final NoriaCheckoutResult result = await completed.future.timeout(
         remaining,
         onTimeout: () => throw const NoriaCheckoutException(
           'A sessão expirou antes do retorno.',
         ),
       );
+      if (presentation == NoriaCheckoutPresentation.inAppBrowser) {
+        try {
+          await _closer();
+        } catch (_) {
+          // A confirmação já é canônica. Fechar o navegador é apenas UX.
+        }
+      }
+      return result;
     } finally {
+      if (identical(_activeSubscription, subscription)) {
+        _activeSubscription = null;
+        _activeCompletion = null;
+        _generation++;
+      }
       await subscription.cancel();
     }
   }
@@ -288,25 +491,47 @@ class NoriaCheckoutButtonLabel extends StatelessWidget {
 
 class _NoriaCheckoutButtonState extends State<NoriaCheckoutButton> {
   bool _busy = false;
+  int _attempt = 0;
+
+  NoriaCheckoutController get _controller =>
+      widget.controller ?? (_ownedController ??= NoriaCheckoutController());
+
+  NoriaCheckoutController? _ownedController;
 
   Future<void> _open() async {
     if (_busy || !widget.enabled) return;
+    final int attempt = ++_attempt;
     setState(() => _busy = true);
     try {
       final NoriaCheckoutSession session = await widget.createSession();
-      final NoriaCheckoutResult? result =
-          await (widget.controller ?? NoriaCheckoutController()).open(
+      final NoriaCheckoutResult? result = await _controller.open(
         session: session,
         expectedCheckoutOrigin: widget.expectedCheckoutOrigin,
         returnUrl: widget.returnUrl,
         presentation: widget.presentation,
+        onOpened: () {
+          if (mounted && attempt == _attempt) {
+            setState(() => _busy = false);
+          }
+        },
       );
       if (result != null) widget.onComplete?.call(result);
     } catch (error) {
-      widget.onError?.call(error);
+      if (error is! NoriaCheckoutCancelledException) {
+        widget.onError?.call(error);
+      }
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted && attempt == _attempt && _busy) {
+        setState(() => _busy = false);
+      }
     }
+  }
+
+  @override
+  void dispose() {
+    _attempt++;
+    _ownedController?.cancelPending();
+    super.dispose();
   }
 
   @override
