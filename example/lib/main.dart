@@ -23,11 +23,9 @@ class NoriaCheckoutExample extends StatelessWidget {
       title: 'Noria Checkout',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        useMaterial3: true,
         scaffoldBackgroundColor: const Color(0xFFF5F5F7),
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFF141416),
-          brightness: Brightness.light,
           surface: Colors.white,
         ),
         textTheme: Theme.of(context).textTheme.apply(
@@ -74,18 +72,18 @@ class _CheckoutDemoPageState extends State<CheckoutDemoPage> {
   Future<NoriaCheckoutSession> _createSession() async {
     if (_sessionEndpoint.isEmpty) {
       throw const NoriaCheckoutException(
+        NoriaCheckoutErrorCode.malformedSession,
         'Configure NORIA_DEMO_SESSION_ENDPOINT no build do exemplo.',
       );
     }
     final Uri endpoint = Uri.parse(_sessionEndpoint);
-    final bool secure =
-        endpoint.scheme == 'https' ||
-        (endpoint.scheme == 'http' &&
-            (endpoint.host == 'localhost' || endpoint.host == '127.0.0.1'));
-    if (!secure ||
+    if (!isSecureCheckoutUri(endpoint) ||
         endpoint.userInfo.isNotEmpty ||
         endpoint.fragment.isNotEmpty) {
-      throw const NoriaCheckoutException('Endpoint de sessão inseguro.');
+      throw const NoriaCheckoutException(
+        NoriaCheckoutErrorCode.insecureUrl,
+        'Endpoint de sessão inseguro.',
+      );
     }
 
     setState(() => _status = 'Criando sessão segura…');
@@ -98,29 +96,37 @@ class _CheckoutDemoPageState extends State<CheckoutDemoPage> {
         .timeout(const Duration(seconds: 15));
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw NoriaCheckoutException(
+        NoriaCheckoutErrorCode.malformedSession,
         'O backend não criou a sessão (${response.statusCode}).',
       );
     }
     final Object? decoded = jsonDecode(response.body);
     if (decoded is! Map<String, Object?>) {
-      throw const NoriaCheckoutException('Resposta de sessão inválida.');
+      throw const NoriaCheckoutException(
+        NoriaCheckoutErrorCode.malformedSession,
+        'Resposta de sessão inválida.',
+      );
     }
     return NoriaCheckoutSession.fromJson(decoded);
   }
 
-  void _onError(Object error) {
-    if (!mounted) return;
+  void _onError(Object error, StackTrace stackTrace) {
+    if (!mounted) {
+      return;
+    }
+    final String message = error is NoriaCheckoutException
+        ? error.message
+        : 'Erro inesperado ao abrir o Checkout.';
     setState(() => _status = 'Não foi possível abrir o Checkout');
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        behavior: SnackBarBehavior.floating,
-        content: Text(error.toString()),
-      ),
+      SnackBar(behavior: SnackBarBehavior.floating, content: Text(message)),
     );
   }
 
   void _onComplete(NoriaCheckoutResult result) {
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     setState(() => _status = 'Pagamento enviado para confirmação');
   }
 
@@ -375,7 +381,7 @@ class _PaymentPanel extends StatelessWidget {
   final bool enabled;
   final NoriaCreateSession createSession;
   final NoriaCheckoutCallback onComplete;
-  final ValueChanged<Object> onError;
+  final NoriaCheckoutErrorCallback onError;
   final Uri checkoutOrigin;
   final Uri returnUrl;
 

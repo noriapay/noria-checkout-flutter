@@ -1,19 +1,39 @@
 name: noria_checkout
-description: Noria hosted Checkout for Flutter applications.
-version: 0.1.0-beta.1
+description: >-
+  Noria hosted Checkout for Flutter. Opens the Checkout in a secure platform
+  browser and verifies the universal/app link that brings the customer back.
+version: 1.0.0
+repository: https://github.com/noriapay/noria-checkout-flutter
+issue_tracker: https://github.com/noriapay/noria-checkout-flutter/issues
+documentation: https://github.com/noriapay/noria-checkout-flutter#readme
+# Private SDK distributed through git. Remove this line to publish to pub.dev.
 publish_to: none
+
+topics:
+  - payments
+  - checkout
+  - noria
+
+platforms:
+  android:
+  ios:
+  web:
+
 environment:
-  sdk: ">=3.4.0 <4.0.0"
-  flutter: ">=3.22.0"
+  sdk: ^3.10.0
+  flutter: ">=3.38.1"
+
 dependencies:
+  app_links: ^7.0.0
   flutter:
     sdk: flutter
-  app_links: 7.0.0
   url_launcher: ^6.3.2
+
 dev_dependencies:
+  flutter_lints: ^6.0.0
   flutter_test:
     sdk: flutter
-  flutter_lints: ^6.0.0
+
 flutter:
   uses-material-design: false
   assets:

@@ -1,8 +1,7 @@
-# Noria Checkout Flutter example
+# Exemplo do Noria Checkout
 
-The sample keeps price and line items on the merchant backend. The app sends
-only `cartId` to the configured session endpoint and receives the public
-Checkout session contract.
+O app mantém preço e itens no backend do merchant. Ele envia apenas `cartId`
+ao endpoint de sessão configurado e recebe o contrato público da sessão.
 
 ```bash
 flutter run -d chrome \
@@ -11,6 +10,9 @@ flutter run -d chrome \
   --dart-define=NORIA_CHECKOUT_RETURN_URL=https://merchant.example/payment/return
 ```
 
-Without `NORIA_DEMO_SESSION_ENDPOINT`, the app runs as a non-interactive visual
-preview. Never place the project's Ed25519 private key or a Noria internal key
-in a `--dart-define` or in the application bundle.
+Sem `NORIA_DEMO_SESSION_ENDPOINT`, o app roda como prévia visual sem
+interação. Nunca coloque a chave privada Ed25519 do projeto ou uma chave
+interna Noria em `--dart-define` ou no bundle do aplicativo.
+
+Para testar o retorno no Android e iOS, configure o `assetlinks.json` e o
+`apple-app-site-association` conforme o [README principal](../README.md).
