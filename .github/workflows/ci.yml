@@ -13,18 +13,39 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Keep in sync with the `environment.flutter` floor in pubspec.yaml.
+  FLUTTER_VERSION: "3.41.4"
+
 jobs:
   verify:
     name: Format, analyze and test
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      # Organisation policy allows only GitHub-owned and noriapay/* actions,
+      # pinned by commit SHA, so Flutter is installed straight from git
+      # instead of a marketplace action.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: subosito/flutter-action@v2
+      - name: Cache Flutter SDK and pub packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          channel: stable
-          cache: true
+          path: |
+            ~/flutter
+            ~/.pub-cache
+          key: flutter-${{ runner.os }}-${{ env.FLUTTER_VERSION }}-${{ hashFiles('**/pubspec.lock') }}
+          restore-keys: |
+            flutter-${{ runner.os }}-${{ env.FLUTTER_VERSION }}-
+
+      - name: Install Flutter
+        run: |
+          if [ ! -x "$HOME/flutter/bin/flutter" ]; then
+            git clone --depth 1 --branch "$FLUTTER_VERSION" https://github.com/flutter/flutter.git "$HOME/flutter"
+          fi
+          echo "$HOME/flutter/bin" >> "$GITHUB_PATH"
+          "$HOME/flutter/bin/flutter" config --no-analytics
+          "$HOME/flutter/bin/flutter" --version
 
       - name: Install dependencies
         run: flutter pub get
