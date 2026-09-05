@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Keep in sync with the `environment.flutter` floor in pubspec.yaml.
+  FLUTTER_VERSION: "3.41.4"
+
+jobs:
+  verify:
+    name: Format, analyze and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # Organisation policy allows only GitHub-owned and noriapay/* actions,
+      # pinned by commit SHA, so Flutter is installed straight from git
+      # instead of a marketplace action.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Cache Flutter SDK and pub packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/flutter
+            ~/.pub-cache
+          key: flutter-${{ runner.os }}-${{ env.FLUTTER_VERSION }}-${{ hashFiles('**/pubspec.lock') }}
+          restore-keys: |
+            flutter-${{ runner.os }}-${{ env.FLUTTER_VERSION }}-
+
+      - name: Install Flutter
+        run: |
+          if [ ! -x "$HOME/flutter/bin/flutter" ]; then
+            git clone --depth 1 --branch "$FLUTTER_VERSION" https://github.com/flutter/flutter.git "$HOME/flutter"
+          fi
+          echo "$HOME/flutter/bin" >> "$GITHUB_PATH"
+          "$HOME/flutter/bin/flutter" config --no-analytics
+          "$HOME/flutter/bin/flutter" --version
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Check formatting
+        run: dart format --output=none --set-exit-if-changed .
+
+      - name: Analyze
+        run: flutter analyze --fatal-infos --fatal-warnings
+
+      - name: Test with coverage
+        run: flutter test --coverage --reporter expanded
+
+      - name: Enforce coverage floor
+        run: |
+          total=$(awk -F: '/^LF/{lf+=$2} /^LH/{lh+=$2} END{printf "%d", (lh/lf)*100}' coverage/lcov.info)
+          echo "Line coverage: ${total}%"
+          test "$total" -ge 85
+
+      - name: Example - install dependencies
+        working-directory: example
+        run: flutter pub get
+
+      - name: Example - analyze and test
+        working-directory: example
+        run: |
+          flutter analyze --fatal-infos --fatal-warnings
+          flutter test --reporter expanded
+
+      - name: Example - build web
+        working-directory: example
+        run: flutter build web --release --no-tree-shake-icons
+
+      - name: Verify version consistency
+        run: |
+          pubspec=$(grep -E '^version:' pubspec.yaml | awk '{print $2}')
+          dart_version=$(grep -oE "'[0-9]+\.[0-9]+\.[0-9]+[^']*'" lib/src/version.dart | tr -d "'")
+          echo "pubspec=$pubspec version.dart=$dart_version"
+          test "$pubspec" = "$dart_version"
+          grep -q "## \[$pubspec\]" CHANGELOG.md
