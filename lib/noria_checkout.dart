@@ -359,33 +359,6 @@ class NoriaCheckoutController {
 
     await cancelPending();
     final int generation = _generation;
-    final Uri statusUrl = _statusUrlFor(session, expectedCheckoutOrigin);
-    try {
-      final String? initialStatus = await _statusReader(
-        statusUrl,
-        session.clientSecret,
-      ).timeout(const Duration(seconds: 2));
-      if (generation != _generation) {
-        throw const NoriaCheckoutCancelledException();
-      }
-      switch (initialStatus) {
-        case 'completed':
-          return NoriaCheckoutResult(sessionId: session.sessionId);
-        case 'expired':
-        case 'cancelled':
-        case 'failed':
-          throw _terminalStatusError(initialStatus!);
-      }
-    } on NoriaCheckoutException {
-      rethrow;
-    } catch (_) {
-      // A consulta inicial é só uma proteção de UX contra reabrir uma sessão
-      // terminal. Uma falha transitória não impede o Checkout de ser aberto;
-      // o acompanhamento posterior mantém retry limitado.
-    }
-    if (generation != _generation) {
-      throw const NoriaCheckoutCancelledException();
-    }
     final Completer<NoriaCheckoutResult> completed =
         Completer<NoriaCheckoutResult>();
     late final StreamSubscription<Uri> subscription;

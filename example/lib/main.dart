@@ -71,7 +71,6 @@ class _CheckoutDemoPageState extends State<CheckoutDemoPage> {
   static final Uri _expectedReturnUrl = Uri.tryParse(_returnUrl) ?? Uri();
 
   String _status = 'Pronto para pagar';
-  bool _completed = false;
 
   Future<NoriaCheckoutSession> _createSession() async {
     if (_sessionEndpoint.isEmpty) {
@@ -123,10 +122,7 @@ class _CheckoutDemoPageState extends State<CheckoutDemoPage> {
 
   void _onComplete(NoriaCheckoutResult result) {
     if (!mounted) return;
-    setState(() {
-      _completed = true;
-      _status = 'Pagamento confirmado';
-    });
+    setState(() => _status = 'Pagamento confirmado');
   }
 
   @override
@@ -158,7 +154,7 @@ class _CheckoutDemoPageState extends State<CheckoutDemoPage> {
                             const SizedBox(height: 16),
                             _PaymentPanel(
                               status: _status,
-                              enabled: _configurationReady && !_completed,
+                              enabled: _configurationReady,
                               createSession: _createSession,
                               onComplete: _onComplete,
                               onError: _onError,
@@ -177,7 +173,7 @@ class _CheckoutDemoPageState extends State<CheckoutDemoPage> {
                               flex: 5,
                               child: _PaymentPanel(
                                 status: _status,
-                                enabled: _configurationReady && !_completed,
+                                enabled: _configurationReady,
                                 createSession: _createSession,
                                 onComplete: _onComplete,
                                 onError: _onError,

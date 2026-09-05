@@ -223,7 +223,8 @@ void main() {
     expect(closed, isTrue);
   });
 
-  test('does not flash the browser for an already completed session', () async {
+  test('delegates terminal session rendering to the hosted Checkout', () async {
+    final List<String> events = <String>[];
     bool opened = false;
     bool closed = false;
     final NoriaCheckoutController controller = NoriaCheckoutController(
@@ -233,10 +234,14 @@ void main() {
         required LaunchMode mode,
         String? webOnlyWindowName,
       }) async {
+        events.add('launch');
         opened = true;
         return true;
       },
-      statusReader: (Uri statusUrl, String clientSecret) async => 'completed',
+      statusReader: (Uri statusUrl, String clientSecret) async {
+        events.add('status');
+        return 'completed';
+      },
       closer: () async => closed = true,
       pollInterval: Duration.zero,
     );
@@ -249,11 +254,12 @@ void main() {
     );
 
     expect(result?.sessionId, activeSession().sessionId);
-    expect(opened, isFalse);
-    expect(closed, isFalse);
+    expect(opened, isTrue);
+    expect(closed, isTrue);
+    expect(events, <String>['launch', 'status']);
   });
 
-  test('cancels a stale open while its initial status is in flight', () async {
+  test('cancels a stale open while its status poll is in flight', () async {
     final Completer<String?> firstStatus = Completer<String?>();
     int statusReads = 0;
     int launches = 0;
@@ -281,6 +287,10 @@ void main() {
           Uri.parse('https://checkout.development.noriapay.com.br'),
       returnUrl: Uri.parse('https://shop.example/payment/return'),
     );
+    final Future<void> staleExpectation = expectLater(
+      staleOpen,
+      throwsA(isA<NoriaCheckoutCancelledException>()),
+    );
     await Future<void>.delayed(Duration.zero);
 
     final NoriaCheckoutResult? latestResult = await controller.open(
@@ -292,9 +302,8 @@ void main() {
     firstStatus.complete('open');
 
     expect(latestResult?.sessionId, activeSession().sessionId);
-    await expectLater(
-        staleOpen, throwsA(isA<NoriaCheckoutCancelledException>()));
-    expect(launches, 0);
+    await staleExpectation;
+    expect(launches, 2);
   });
 
   test('bounds failures while polling the public session status', () async {
@@ -328,6 +337,6 @@ void main() {
         ),
       ),
     );
-    expect(attempts, 3);
+    expect(attempts, 2);
   });
 }
