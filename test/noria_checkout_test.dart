@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noria_checkout/noria_checkout.dart';
+import 'package:url_launcher/url_launcher.dart' show LaunchMode;
 
 NoriaCheckoutSession session({String? checkoutUrl}) {
   return NoriaCheckoutSession(
@@ -11,6 +14,35 @@ NoriaCheckoutSession session({String? checkoutUrl}) {
     expiresAt: DateTime.utc(2026, 9, 2, 15),
     returnState: 'state-with-enough-entropy',
   );
+}
+
+NoriaCheckoutSession activeSession() {
+  return NoriaCheckoutSession(
+    sessionId: '11111111-1111-4111-8111-111111111111',
+    checkoutUrl:
+        'https://checkout.development.noriapay.com.br/session/11111111-1111-4111-8111-111111111111',
+    clientSecret: 'secret-with-at-least-twenty-characters',
+    expiresAt: DateTime.now().toUtc().add(const Duration(minutes: 5)),
+    returnState: 'state-with-enough-entropy',
+  );
+}
+
+class _PendingController extends NoriaCheckoutController {
+  final Completer<NoriaCheckoutResult?> result =
+      Completer<NoriaCheckoutResult?>();
+
+  @override
+  Future<NoriaCheckoutResult?> open({
+    required NoriaCheckoutSession session,
+    required Uri expectedCheckoutOrigin,
+    required Uri returnUrl,
+    NoriaCheckoutPresentation presentation =
+        NoriaCheckoutPresentation.inAppBrowser,
+    VoidCallback? onOpened,
+  }) {
+    onOpened?.call();
+    return result.future;
+  }
 }
 
 void main() {
@@ -111,5 +143,191 @@ void main() {
     final Image brand = tester.widget<Image>(find.byType(Image));
     expect(brand.semanticLabel, isNull);
     expect(brand.height, 16);
+  });
+
+  testWidgets('stops loading after the Checkout browser opens',
+      (WidgetTester tester) async {
+    final _PendingController controller = _PendingController();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: NoriaCheckoutButton(
+            controller: controller,
+            createSession: () async => session(),
+            expectedCheckoutOrigin:
+                Uri.parse('https://checkout.development.noriapay.com.br'),
+            returnUrl: Uri.parse('https://shop.example/payment/return'),
+            child: const Text('Pagar'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Pagar'));
+    await tester.pump();
+
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    final FilledButton button = tester.widget<FilledButton>(
+      find.byType(FilledButton),
+    );
+    expect(button.onPressed, isNotNull);
+
+    controller.result.complete(null);
+    await tester.pump();
+  });
+
+  test('completes UX from the canonical public session status', () async {
+    Uri? requestedStatusUrl;
+    String? suppliedSecret;
+    int statusReads = 0;
+    bool opened = false;
+    bool closed = false;
+    final NoriaCheckoutController controller = NoriaCheckoutController(
+      appLinkStream: const Stream<Uri>.empty(),
+      launcher: (
+        Uri uri, {
+        required LaunchMode mode,
+        String? webOnlyWindowName,
+      }) async {
+        opened = true;
+        return true;
+      },
+      statusReader: (Uri statusUrl, String clientSecret) async {
+        requestedStatusUrl = statusUrl;
+        suppliedSecret = clientSecret;
+        return statusReads++ == 0 ? 'open' : 'completed';
+      },
+      closer: () async => closed = true,
+      pollInterval: Duration.zero,
+    );
+
+    final NoriaCheckoutResult? result = await controller.open(
+      session: activeSession(),
+      expectedCheckoutOrigin:
+          Uri.parse('https://checkout.development.noriapay.com.br'),
+      returnUrl: Uri.parse('https://shop.example/payment/return'),
+    );
+
+    expect(result?.sessionId, activeSession().sessionId);
+    expect(
+      requestedStatusUrl,
+      Uri.parse(
+        'https://checkout.development.noriapay.com.br/v1/public/checkout-session/${activeSession().sessionId}',
+      ),
+    );
+    expect(requestedStatusUrl?.query, isEmpty);
+    expect(requestedStatusUrl?.fragment, isEmpty);
+    expect(suppliedSecret, activeSession().clientSecret);
+    expect(opened, isTrue);
+    expect(closed, isTrue);
+  });
+
+  test('does not flash the browser for an already completed session', () async {
+    bool opened = false;
+    bool closed = false;
+    final NoriaCheckoutController controller = NoriaCheckoutController(
+      appLinkStream: const Stream<Uri>.empty(),
+      launcher: (
+        Uri uri, {
+        required LaunchMode mode,
+        String? webOnlyWindowName,
+      }) async {
+        opened = true;
+        return true;
+      },
+      statusReader: (Uri statusUrl, String clientSecret) async => 'completed',
+      closer: () async => closed = true,
+      pollInterval: Duration.zero,
+    );
+
+    final NoriaCheckoutResult? result = await controller.open(
+      session: activeSession(),
+      expectedCheckoutOrigin:
+          Uri.parse('https://checkout.development.noriapay.com.br'),
+      returnUrl: Uri.parse('https://shop.example/payment/return'),
+    );
+
+    expect(result?.sessionId, activeSession().sessionId);
+    expect(opened, isFalse);
+    expect(closed, isFalse);
+  });
+
+  test('cancels a stale open while its initial status is in flight', () async {
+    final Completer<String?> firstStatus = Completer<String?>();
+    int statusReads = 0;
+    int launches = 0;
+    final NoriaCheckoutController controller = NoriaCheckoutController(
+      appLinkStream: const Stream<Uri>.empty(),
+      launcher: (
+        Uri uri, {
+        required LaunchMode mode,
+        String? webOnlyWindowName,
+      }) async {
+        launches++;
+        return true;
+      },
+      statusReader: (Uri statusUrl, String clientSecret) {
+        if (statusReads++ == 0) return firstStatus.future;
+        return Future<String?>.value('completed');
+      },
+      closer: () async {},
+      pollInterval: Duration.zero,
+    );
+
+    final Future<NoriaCheckoutResult?> staleOpen = controller.open(
+      session: activeSession(),
+      expectedCheckoutOrigin:
+          Uri.parse('https://checkout.development.noriapay.com.br'),
+      returnUrl: Uri.parse('https://shop.example/payment/return'),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    final NoriaCheckoutResult? latestResult = await controller.open(
+      session: activeSession(),
+      expectedCheckoutOrigin:
+          Uri.parse('https://checkout.development.noriapay.com.br'),
+      returnUrl: Uri.parse('https://shop.example/payment/return'),
+    );
+    firstStatus.complete('open');
+
+    expect(latestResult?.sessionId, activeSession().sessionId);
+    await expectLater(
+        staleOpen, throwsA(isA<NoriaCheckoutCancelledException>()));
+    expect(launches, 0);
+  });
+
+  test('bounds failures while polling the public session status', () async {
+    int attempts = 0;
+    final NoriaCheckoutController controller = NoriaCheckoutController(
+      appLinkStream: const Stream<Uri>.empty(),
+      launcher: (Uri uri,
+              {required LaunchMode mode, String? webOnlyWindowName}) async =>
+          true,
+      statusReader: (Uri statusUrl, String clientSecret) async {
+        attempts++;
+        throw StateError('synthetic network failure');
+      },
+      closer: () async {},
+      pollInterval: Duration.zero,
+      maxConsecutivePollFailures: 2,
+    );
+
+    await expectLater(
+      controller.open(
+        session: activeSession(),
+        expectedCheckoutOrigin:
+            Uri.parse('https://checkout.development.noriapay.com.br'),
+        returnUrl: Uri.parse('https://shop.example/payment/return'),
+      ),
+      throwsA(
+        isA<NoriaCheckoutException>().having(
+          (NoriaCheckoutException error) => error.message,
+          'message',
+          'Não foi possível acompanhar a confirmação do pagamento.',
+        ),
+      ),
+    );
+    expect(attempts, 3);
   });
 }
