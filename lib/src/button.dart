@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'controller.dart';
+import 'exception.dart';
 import 'presentation.dart';
 import 'result.dart';
 import 'session.dart';
@@ -20,9 +21,11 @@ typedef NoriaCheckoutErrorCallback =
 
 /// A Material button that creates a session and opens the hosted Checkout.
 ///
-/// The button disables itself while a session is being created or the
-/// customer is inside the Checkout, so a double tap cannot open two sessions.
-/// Styling comes from the ambient [FilledButtonTheme] unless [style] is set.
+/// The button disables itself while the session is being created and the
+/// browser is being presented, then re-enables as soon as the Checkout is on
+/// screen so the customer can start over. Tapping again cancels the previous
+/// wait through [NoriaCheckoutController.cancelPending]. Styling comes from
+/// the ambient [FilledButtonTheme] unless [style] is set.
 class NoriaCheckoutButton extends StatefulWidget {
   /// Creates a Checkout button.
   const NoriaCheckoutButton({
@@ -59,6 +62,9 @@ class NoriaCheckoutButton extends StatefulWidget {
   final NoriaCheckoutCallback? onComplete;
 
   /// Called when creating the session or opening the Checkout fails.
+  ///
+  /// Never called with [NoriaCheckoutCancelledException]: a superseded wait
+  /// is not an error from the customer's point of view.
   final NoriaCheckoutErrorCallback? onError;
 
   /// Controller used to open the Checkout. When omitted, the button owns one.
@@ -85,15 +91,23 @@ class NoriaCheckoutButton extends StatefulWidget {
 
 class _NoriaCheckoutButtonState extends State<NoriaCheckoutButton> {
   bool _busy = false;
+  int _attempt = 0;
   NoriaCheckoutController? _ownedController;
 
   NoriaCheckoutController get _controller =>
       widget.controller ?? (_ownedController ??= NoriaCheckoutController());
 
+  void _release(int attempt) {
+    if (mounted && attempt == _attempt && _busy) {
+      setState(() => _busy = false);
+    }
+  }
+
   Future<void> _open() async {
     if (_busy || !widget.enabled) {
       return;
     }
+    final int attempt = ++_attempt;
     setState(() => _busy = true);
     try {
       final NoriaCheckoutSession session = await widget.createSession();
@@ -102,19 +116,27 @@ class _NoriaCheckoutButtonState extends State<NoriaCheckoutButton> {
         expectedCheckoutOrigin: widget.expectedCheckoutOrigin,
         returnUrl: widget.returnUrl,
         presentation: widget.presentation,
+        onOpened: () => _release(attempt),
       );
       if (result != null && mounted) {
         widget.onComplete?.call(result);
       }
+    } on NoriaCheckoutCancelledException {
+      // Superseded by a newer tap or by dispose: nothing to report.
     } on Object catch (error, stackTrace) {
       if (mounted) {
         widget.onError?.call(error, stackTrace);
       }
     } finally {
-      if (mounted) {
-        setState(() => _busy = false);
-      }
+      _release(attempt);
     }
+  }
+
+  @override
+  void dispose() {
+    _attempt++;
+    _ownedController?.cancelPending();
+    super.dispose();
   }
 
   @override

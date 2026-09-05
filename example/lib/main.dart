@@ -7,6 +7,7 @@ import 'package:noria_checkout/noria_checkout.dart';
 const String _sessionEndpoint = String.fromEnvironment(
   'NORIA_DEMO_SESSION_ENDPOINT',
 );
+const String _demoCartId = String.fromEnvironment('NORIA_DEMO_CART_ID');
 const String _checkoutOrigin = String.fromEnvironment('NORIA_CHECKOUT_ORIGIN');
 const String _returnUrl = String.fromEnvironment('NORIA_CHECKOUT_RETURN_URL');
 
@@ -91,7 +92,7 @@ class _CheckoutDemoPageState extends State<CheckoutDemoPage> {
         .post(
           endpoint,
           headers: const <String, String>{'content-type': 'application/json'},
-          body: jsonEncode(const <String, String>{'cartId': 'cart-demo-001'}),
+          body: jsonEncode(<String, String>{'cartId': _demoCartId}),
         )
         .timeout(const Duration(seconds: 15));
     if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -127,7 +128,7 @@ class _CheckoutDemoPageState extends State<CheckoutDemoPage> {
     if (!mounted) {
       return;
     }
-    setState(() => _status = 'Pagamento enviado para confirmação');
+    setState(() => _status = 'Pagamento confirmado');
   }
 
   @override
@@ -201,6 +202,7 @@ class _CheckoutDemoPageState extends State<CheckoutDemoPage> {
 
   bool get _configurationReady =>
       _sessionEndpoint.isNotEmpty &&
+      _demoCartId.isNotEmpty &&
       _checkoutOrigin.isNotEmpty &&
       _returnUrl.isNotEmpty;
 }

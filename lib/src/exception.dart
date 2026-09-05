@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import 'session_status.dart';
+
 /// Classifies every failure raised by the Noria Checkout SDK.
 ///
 /// Integrators should branch on the code instead of parsing
@@ -34,8 +36,25 @@ enum NoriaCheckoutErrorCode {
   /// The platform browser could not be opened.
   launchFailed,
 
-  /// The session expired before a verified return link arrived.
+  /// The session expired before a verified return link or a completed status
+  /// arrived.
   returnTimeout,
+
+  /// A newer `open` call (or `cancelPending`) superseded the pending wait.
+  cancelled,
+
+  /// The public status endpoint answered 401 or 404: the session does not
+  /// exist or the secret is not accepted.
+  sessionUnavailable,
+
+  /// The public status endpoint returned a body the SDK does not understand.
+  invalidStatus,
+
+  /// Polling the public status endpoint failed too many times in a row.
+  pollingFailed,
+
+  /// The session reached a terminal state other than `completed`.
+  sessionNotCompleted,
 }
 
 /// Exception raised by every public entry point of the SDK.
@@ -60,12 +79,39 @@ class NoriaCheckoutException implements Exception {
   @override
   bool operator ==(Object other) =>
       other is NoriaCheckoutException &&
+      other.runtimeType == runtimeType &&
       other.code == code &&
       other.message == message;
 
   @override
-  int get hashCode => Object.hash(code, message);
+  int get hashCode => Object.hash(runtimeType, code, message);
 
   @override
   String toString() => 'NoriaCheckoutException(${code.name}): $message';
+}
+
+/// Raised when a pending `open` is superseded by a newer call or by
+/// `cancelPending`. [NoriaCheckoutButton] swallows it, since the customer
+/// simply started over.
+class NoriaCheckoutCancelledException extends NoriaCheckoutException {
+  /// Creates the cancellation exception.
+  const NoriaCheckoutCancelledException()
+    : super(
+        NoriaCheckoutErrorCode.cancelled,
+        'A espera pelo retorno anterior foi cancelada.',
+      );
+}
+
+/// Raised when the public status endpoint reports that the session ended
+/// without completing the payment.
+class NoriaCheckoutStatusException extends NoriaCheckoutException {
+  /// Creates the exception for a terminal, unsuccessful [status].
+  NoriaCheckoutStatusException(this.status)
+    : super(
+        NoriaCheckoutErrorCode.sessionNotCompleted,
+        'O pagamento terminou com o estado ${status.wireValue}.',
+      );
+
+  /// The terminal state reported by the Checkout.
+  final NoriaCheckoutSessionStatus status;
 }

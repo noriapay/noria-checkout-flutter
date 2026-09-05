@@ -14,6 +14,10 @@
 /// )
 /// ```
 ///
+/// On Android and iOS the SDK also polls the public state of the session so
+/// the UX can complete as soon as the Checkout reports `completed`, even
+/// before the universal/app link arrives.
+///
 /// Secrets never leave the merchant backend: `createSession` calls the
 /// merchant server, and the payment status must be confirmed through a signed
 /// webhook or a server-to-server query.
@@ -26,5 +30,7 @@ export 'src/launcher.dart';
 export 'src/presentation.dart';
 export 'src/result.dart';
 export 'src/session.dart';
+export 'src/session_status.dart';
+export 'src/status.dart';
 export 'src/verification.dart';
 export 'src/version.dart';

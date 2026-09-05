@@ -1,9 +1,11 @@
 import 'package:flutter/foundation.dart';
 
-/// Emitted when a verified return link for a Checkout session reaches the app.
+/// Emitted when a Checkout session completes from the app's point of view:
+/// either a verified return link reached the app or the public session status
+/// became `completed`.
 ///
-/// This is **not** a payment confirmation. The canonical payment status must
-/// come from a signed webhook or a server-to-server query using [sessionId].
+/// This is **not** the canonical payment confirmation. It must still come
+/// from a signed webhook or a server-to-server query using [sessionId].
 @immutable
 class NoriaCheckoutResult {
   /// Creates a result for [sessionId] that arrived through [returnUri].
@@ -12,7 +14,8 @@ class NoriaCheckoutResult {
   /// Identifier of the session the customer returned from.
   final String sessionId;
 
-  /// The verified universal/app link that brought the customer back.
+  /// The URI that signalled completion: the verified universal/app link, or
+  /// the public status endpoint when completion came from polling.
   final Uri returnUri;
 
   @override

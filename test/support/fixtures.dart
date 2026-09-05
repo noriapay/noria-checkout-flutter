@@ -71,11 +71,15 @@ class FakeAppLinks extends Fake implements AppLinks {
 }
 
 /// Fake browser that records what the controller asked it to do.
+///
+/// When [gate] is set, [launch] only resolves after the gate completes, which
+/// lets widget tests observe the busy state.
 class FakeLauncher implements NoriaCheckoutLauncher {
-  FakeLauncher({this.opened = true, this.error});
+  FakeLauncher({this.opened = true, this.error, this.gate});
 
   bool opened;
   Object? error;
+  Completer<void>? gate;
   final List<Uri> launched = <Uri>[];
   final List<NoriaCheckoutPresentation> presentations =
       <NoriaCheckoutPresentation>[];
@@ -85,6 +89,7 @@ class FakeLauncher implements NoriaCheckoutLauncher {
   Future<bool> launch(Uri url, NoriaCheckoutPresentation presentation) async {
     launched.add(url);
     presentations.add(presentation);
+    await gate?.future;
     final Object? failure = error;
     if (failure != null) {
       throw failure;
@@ -95,5 +100,46 @@ class FakeLauncher implements NoriaCheckoutLauncher {
   @override
   Future<void> closeInAppBrowser() async {
     closeCalls++;
+  }
+}
+
+/// Fake public status endpoint driven by a scripted queue of answers.
+///
+/// Each entry is a [NoriaCheckoutSessionStatus], `null` (transient failure),
+/// an [Object] error to throw, or a [Future] to await. When the queue runs
+/// out, [fallback] is returned; by default the reader then never answers so
+/// widget tests do not accumulate timers.
+class FakeStatusReader implements NoriaCheckoutStatusReader {
+  FakeStatusReader([List<Object?>? script, this.fallback])
+    : script = List<Object?>.of(script ?? const <Object?>[]);
+
+  final List<Object?> script;
+  final NoriaCheckoutSessionStatus? fallback;
+  final List<Uri> requestedUrls = <Uri>[];
+  final List<String> suppliedSecrets = <String>[];
+
+  int get reads => requestedUrls.length;
+
+  @override
+  Future<NoriaCheckoutSessionStatus?> read(
+    Uri statusUrl,
+    String clientSecret,
+  ) async {
+    requestedUrls.add(statusUrl);
+    suppliedSecrets.add(clientSecret);
+    if (script.isEmpty) {
+      if (fallback != null) {
+        return fallback;
+      }
+      return Completer<NoriaCheckoutSessionStatus?>().future;
+    }
+    final Object? next = script.removeAt(0);
+    if (next is Future<NoriaCheckoutSessionStatus?>) {
+      return next;
+    }
+    if (next is NoriaCheckoutSessionStatus?) {
+      return next;
+    }
+    throw next;
   }
 }

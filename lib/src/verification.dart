@@ -185,3 +185,18 @@ bool isVerifiedCheckoutReturn(
   );
   return sessionMatches & stateMatches;
 }
+
+/// Public status endpoint for [session] on [expectedCheckoutOrigin].
+///
+/// The client secret is never part of this URL; it travels in a header.
+Uri checkoutStatusUri(
+  NoriaCheckoutSession session, {
+  required Uri expectedCheckoutOrigin,
+}) {
+  return Uri(
+    scheme: expectedCheckoutOrigin.scheme,
+    host: expectedCheckoutOrigin.host,
+    port: expectedCheckoutOrigin.hasPort ? expectedCheckoutOrigin.port : null,
+    path: '/v1/public/checkout-session/${session.sessionId}',
+  );
+}

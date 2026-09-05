@@ -4,11 +4,11 @@ SDK Flutter oficial do **Noria Checkout** hospedado. Abre o Checkout em um
 navegador seguro da plataforma e verifica o universal/app link que traz o
 cliente de volta ao aplicativo.
 
-| Plataforma | Apresentação `inAppBrowser`   | Apresentação `redirect` | Retorno ao app                 |
-| ---------- | ----------------------------- | ----------------------- | ------------------------------ |
-| Android    | Chrome Custom Tabs            | Navegador padrão        | Android App Link (`autoVerify`) |
-| iOS        | `SFSafariViewController`      | Safari                  | Universal Link                 |
-| Web        | Nova aba                      | Redirect na mesma aba   | Página de retorno do merchant  |
+| Plataforma | Apresentação `inAppBrowser`   | Apresentação `redirect` | Conclusão detectada por                          |
+| ---------- | ----------------------------- | ----------------------- | ------------------------------------------------ |
+| Android    | Chrome Custom Tabs            | Navegador padrão        | App Link (`autoVerify`) ou status público da sessão |
+| iOS        | `SFSafariViewController`      | Safari                  | Universal Link ou status público da sessão        |
+| Web        | Nova aba                      | Redirect na mesma aba   | Página de retorno do merchant                    |
 
 ## Sumário
 
@@ -16,6 +16,7 @@ cliente de volta ao aplicativo.
 - [Instalação](#instalação)
 - [Configuração de plataforma](#configuração-de-plataforma)
 - [Uso](#uso)
+- [Como a conclusão é detectada](#como-a-conclusão-é-detectada)
 - [Modelo de segurança](#modelo-de-segurança)
 - [Tratamento de erros](#tratamento-de-erros)
 - [Flutter Web](#flutter-web)
@@ -145,6 +146,30 @@ final NoriaCheckoutResult? result = await checkout.open(
 `id` é aceito como alias de `sessionId`. `expiresAt` deve ser ISO-8601 e é
 normalizado para UTC.
 
+## Como a conclusão é detectada
+
+No Android e no iOS, `open` resolve com o primeiro dos dois sinais:
+
+1. **Link de retorno verificado** (universal/app link) chegando ao app.
+2. **Status público da sessão** alcançando `completed`. O SDK consulta
+   `GET {origem}/v1/public/checkout-session/{sessionId}` a cada
+   `pollInterval` (1,5 s por padrão), enviando `clientSecret` no header
+   `X-Checkout-Secret`. O segredo nunca entra em query string ou logs.
+
+Isso permite fechar o navegador e concluir a UX assim que o Checkout terminar,
+mesmo antes do link. Se o status virar `expired`, `cancelled` ou `failed`,
+`open` falha com `NoriaCheckoutStatusException`, que expõe o estado. Falhas
+transitórias de rede são toleradas até `maxConsecutivePollFailures` (5 por
+padrão); depois disso `open` falha com `pollingFailed`.
+
+`onOpened` dispara assim que o navegador é apresentado. O botão usa esse sinal
+para sair do estado ocupado enquanto o cliente paga. Um novo `open` (ou
+`cancelPending`) cancela a espera anterior com `NoriaCheckoutCancelledException`,
+que o botão ignora.
+
+Essa confirmação no cliente **não substitui** webhook assinado ou consulta do
+backend do estabelecimento.
+
 ## Modelo de segurança
 
 O SDK aplica todas as verificações abaixo antes de abrir o navegador e antes
@@ -195,7 +220,12 @@ de inspecionar `message`, que pode mudar entre versões.
 | `originMismatch`         | `checkoutUrl` fora de `expectedCheckoutOrigin`                |
 | `urlMismatch`            | Caminho de `checkoutUrl` não corresponde à sessão             |
 | `launchFailed`           | Navegador não abriu (ver `cause`) ou stream de links falhou   |
-| `returnTimeout`          | Sessão expirou antes do retorno verificado                    |
+| `returnTimeout`          | Sessão expirou antes do retorno ou da conclusão               |
+| `cancelled`              | Um novo `open` ou `cancelPending` superou a espera            |
+| `sessionUnavailable`     | Endpoint de status respondeu 401 ou 404                       |
+| `invalidStatus`          | Endpoint de status devolveu corpo fora do contrato            |
+| `pollingFailed`          | Falhas transitórias consecutivas acima do limite              |
+| `sessionNotCompleted`    | Status terminou em `expired`, `cancelled` ou `failed`         |
 
 ```dart
 onError: (Object error, StackTrace stackTrace) {
@@ -206,6 +236,8 @@ onError: (Object error, StackTrace stackTrace) {
         showRetry();
       case NoriaCheckoutErrorCode.launchFailed:
         showNoBrowser();
+      case NoriaCheckoutErrorCode.sessionNotCompleted:
+        showDeclined((error as NoriaCheckoutStatusException).status);
       default:
         report(error);
     }
@@ -249,9 +281,11 @@ class FakeLauncher implements NoriaCheckoutLauncher {
 }
 
 final NoriaCheckoutController controller = NoriaCheckoutController(
-  appLinks: fakeAppLinks,          // Stream<Uri> controlado pelo teste
+  appLinkStream: linksController.stream, // Stream<Uri> controlado pelo teste
   launcher: FakeLauncher(),
+  statusReader: FakeStatusReader(),      // implementa NoriaCheckoutStatusReader
   clock: () => DateTime.utc(2026, 9, 4),
+  pollInterval: Duration.zero,
 );
 ```
 
@@ -263,8 +297,12 @@ Veja `test/` neste repositório para exemplos completos.
 | ---------------------------------------------------- | ----------------------------------------------------------------- |
 | `NoriaCheckoutButton`                                | Botão Material que cria a sessão e abre o Checkout                |
 | `NoriaCheckoutButtonLabel`                           | Rótulo "Pagar com a Noria" com o wordmark oficial                 |
-| `NoriaCheckoutController`                            | Abre o Checkout e aguarda o retorno verificado                    |
+| `NoriaCheckoutController`                            | Abre o Checkout e aguarda o retorno verificado ou o status `completed` |
 | `NoriaCheckoutLauncher`                              | Abstração do navegador; `NoriaCheckoutLauncher.platform()` é o padrão |
+| `NoriaCheckoutStatusReader`                          | Leitor do status público; `NoriaCheckoutStatusReader.http()` é o padrão |
+| `NoriaCheckoutSessionStatus`                         | `open`, `processing`, `completed`, `expired`, `cancelled`, `failed` |
+| `NoriaCheckoutCancelledException`, `NoriaCheckoutStatusException` | Subtipos para espera cancelada e sessão não concluída |
+| `checkoutStatusUri`                                  | URL do endpoint público de status                                 |
 | `NoriaCheckoutSession`                               | Contrato da sessão (`fromJson`, igualdade por valor, segredos redigidos) |
 | `NoriaCheckoutResult`                                | Retorno verificado com `sessionId` e `returnUri`                  |
 | `NoriaCheckoutPresentation`                          | `inAppBrowser` ou `redirect`                                      |

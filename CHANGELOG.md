@@ -24,6 +24,19 @@ Primeira versão estável.
 - `verifiedCheckoutUri`, `isVerifiedCheckoutReturn`, `isSecureCheckoutUri` e
   `constantTimeEquals` públicos para páginas de retorno na web e cold start.
 - `noriaCheckoutSdkVersion` para telemetria e suporte.
+- Conclusão pelo status público da sessão: o controller consulta
+  `GET /v1/public/checkout-session/{id}` com `X-Checkout-Secret` no header e
+  resolve `open` assim que o Checkout reporta `completed`, mesmo antes do
+  universal/app link. `NoriaCheckoutStatusReader` injetável, `pollInterval`
+  e `maxConsecutivePollFailures` configuráveis.
+- `NoriaCheckoutSessionStatus`, `NoriaCheckoutStatusException` (estado
+  terminal sem pagamento) e `NoriaCheckoutCancelledException`.
+- `NoriaCheckoutController.cancelPending()` e `hasPending`; um novo `open`
+  cancela a espera anterior.
+- `onOpened` em `open`: o botão sai do estado ocupado assim que o navegador
+  é apresentado.
+- `NoriaCheckoutResult.returnUri` aponta para o link verificado ou para o
+  endpoint de status, conforme a origem da conclusão.
 - Fechamento automático do navegador in-app após o retorno verificado.
 - `style`, `loadingIndicator` e `semanticLabel` no botão.
 - Pipeline de CI (formatação, análise com infos fatais, testes com piso de
@@ -36,6 +49,7 @@ Primeira versão estável.
 - `returnUrl` não pode conter query nem fragmento.
 - Dependência `app_links` passa a usar restrição caret (`^7.0.0`) em vez de
   versão fixa, evitando conflitos no app hospedeiro.
+- Nova dependência `http` para o leitor de status padrão.
 
 ## [0.1.0-beta.1] - 2026-09-02
 

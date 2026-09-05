@@ -9,17 +9,30 @@ import 'support/fixtures.dart';
 void main() {
   late FakeAppLinks appLinks;
   late FakeLauncher launcher;
+  late FakeStatusReader statusReader;
   late NoriaCheckoutController controller;
+
+  NoriaCheckoutController build() {
+    return NoriaCheckoutController(
+      appLinks: appLinks,
+      launcher: launcher,
+      statusReader: statusReader,
+      clock: () => now,
+      pollInterval: Duration.zero,
+    );
+  }
 
   setUp(() {
     appLinks = FakeAppLinks();
     launcher = FakeLauncher();
-    controller = NoriaCheckoutController(
-      appLinks: appLinks,
-      launcher: launcher,
-      clock: () => now,
-    );
+    statusReader = FakeStatusReader();
+    controller = build();
   });
+
+  // Gates must be created inside the test body: a Completer built in setUp
+  // belongs to the root zone and its continuations never run under the
+  // widget tester's FakeAsync.
+  Completer<void> gateLauncher() => launcher.gate = Completer<void>();
 
   tearDown(() => appLinks.dispose());
 
@@ -34,6 +47,7 @@ void main() {
   ) async {
     int created = 0;
     final List<NoriaCheckoutResult> results = <NoriaCheckoutResult>[];
+    final Completer<void> browser = gateLauncher();
     await tester.pumpWidget(
       app(
         NoriaCheckoutButton(
@@ -59,16 +73,27 @@ void main() {
     expect(find.text('Pagar'), findsNothing);
     expect(launcher.launched, hasLength(1));
 
-    // A second tap while busy must not create another session.
+    // A second tap while the browser is still opening must not create
+    // another session.
     await tester.tap(find.byType(FilledButton), warnIfMissed: false);
     await tester.pump();
     expect(created, 1);
+
+    // Once the Checkout is on screen the button releases its busy state even
+    // though the wait for completion is still pending.
+    browser.complete();
+    await tester.pump();
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.text('Pagar'), findsOneWidget);
+    expect(controller.hasPending, isTrue);
+    expect(results, isEmpty);
 
     appLinks.emit(returnLinkFor(session()));
     await tester.pump();
 
     expect(results.map((r) => r.sessionId), <String>[sessionId]);
     expect(launcher.closeCalls, 1);
+    expect(controller.hasPending, isFalse);
     expect(find.text('Pagar'), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsNothing);
   });
@@ -163,6 +188,7 @@ void main() {
   ) async {
     final Completer<NoriaCheckoutSession> gate =
         Completer<NoriaCheckoutSession>();
+    final Completer<void> browser = gateLauncher();
     await tester.pumpWidget(
       app(
         NoriaCheckoutButton(
@@ -190,6 +216,10 @@ void main() {
 
     gate.complete(session());
     await tester.pump();
+    expect(find.text('Aguarde'), findsOneWidget);
+    browser.complete();
+    await tester.pump();
+    expect(find.text('Pagar'), findsOneWidget);
     appLinks.emit(returnLinkFor(session()));
     await tester.pump();
     expect(find.text('Pagar'), findsOneWidget);
@@ -215,10 +245,84 @@ void main() {
     await tester.tap(find.byType(FilledButton));
     await tester.pump();
     await tester.pumpWidget(app(const SizedBox()));
+    // A shared controller is not cancelled on dispose; only an owned one is.
+    expect(controller.hasPending, isTrue);
 
     appLinks.emit(returnLinkFor(session()));
     await tester.pump();
     expect(completions, 0);
+    expect(controller.hasPending, isFalse);
+  });
+
+  testWidgets('a second tap supersedes the pending wait silently', (
+    WidgetTester tester,
+  ) async {
+    final List<Object> errors = <Object>[];
+    final List<NoriaCheckoutResult> results = <NoriaCheckoutResult>[];
+    await tester.pumpWidget(
+      app(
+        NoriaCheckoutButton(
+          controller: controller,
+          createSession: () async => session(),
+          expectedCheckoutOrigin: checkoutOrigin,
+          returnUrl: returnUrl,
+          onComplete: results.add,
+          onError: (Object error, StackTrace _) => errors.add(error),
+          child: const Text('Pagar'),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byType(FilledButton));
+    await tester.pump();
+    expect(find.text('Pagar'), findsOneWidget);
+    expect(controller.hasPending, isTrue);
+
+    await tester.tap(find.byType(FilledButton));
+    await tester.pump();
+    expect(launcher.launched, hasLength(2));
+    expect(errors, isEmpty);
+
+    appLinks.emit(returnLinkFor(session()));
+    await tester.pump();
+    expect(results, hasLength(1));
+    expect(errors, isEmpty);
+  });
+
+  testWidgets('reports terminal statuses through onError', (
+    WidgetTester tester,
+  ) async {
+    Object? reported;
+    statusReader = FakeStatusReader(<Object?>[
+      NoriaCheckoutSessionStatus.failed,
+    ]);
+    controller = build();
+    await tester.pumpWidget(
+      app(
+        NoriaCheckoutButton(
+          controller: controller,
+          createSession: () async => session(),
+          expectedCheckoutOrigin: checkoutOrigin,
+          returnUrl: returnUrl,
+          onError: (Object error, StackTrace _) => reported = error,
+          child: const Text('Pagar'),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byType(FilledButton));
+    await tester.pump();
+    await tester.pump();
+
+    expect(
+      reported,
+      isA<NoriaCheckoutStatusException>().having(
+        (e) => e.status,
+        'status',
+        NoriaCheckoutSessionStatus.failed,
+      ),
+    );
+    expect(find.text('Pagar'), findsOneWidget);
   });
 
   testWidgets('owns a controller when none is supplied', (
