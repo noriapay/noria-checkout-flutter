@@ -225,7 +225,7 @@ de inspecionar `message`, que pode mudar entre versões.
 | `sessionUnavailable`     | Endpoint de status respondeu 401 ou 404                       |
 | `invalidStatus`          | Endpoint de status devolveu corpo fora do contrato            |
 | `pollingFailed`          | Falhas transitórias consecutivas acima do limite              |
-| `sessionNotCompleted`    | Status terminou em `expired`, `canceled` ou `failed`         |
+| `sessionNotCompleted`    | Status terminou em `expired`, `canceled` ou `failed`          |
 
 ```dart
 onError: (Object error, StackTrace stackTrace) {
@@ -300,7 +300,7 @@ Veja `test/` neste repositório para exemplos completos.
 | `NoriaCheckoutController`                            | Abre o Checkout e aguarda o retorno verificado ou o status `completed` |
 | `NoriaCheckoutLauncher`                              | Abstração do navegador; `NoriaCheckoutLauncher.platform()` é o padrão |
 | `NoriaCheckoutStatusReader`                          | Leitor do status público; `NoriaCheckoutStatusReader.http()` é o padrão |
-| `NoriaCheckoutSessionStatus`                         | `open`, `processing`, `completed`, `expired`, `canceled`, `failed` |
+| `NoriaCheckoutSessionStatus`                         | `open`, `processing`, `completed`, `expired`, `canceled`, `failed`  |
 | `NoriaCheckoutCancelledException`, `NoriaCheckoutStatusException` | Subtipos para espera cancelada e sessão não concluída |
 | `checkoutStatusUri`                                  | URL do endpoint público de status                                 |
 | `NoriaCheckoutSession`                               | Contrato da sessão (`fromJson`, igualdade por valor, segredos redigidos) |

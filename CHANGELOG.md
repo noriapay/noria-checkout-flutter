@@ -10,8 +10,9 @@ segue [SemVer](https://semver.org/lang/pt-BR/).
 
 - **Breaking:** `NoriaCheckoutSessionStatus.cancelled` foi renomeado para
   `NoriaCheckoutSessionStatus.canceled`, e o valor de wire passa de `cancelled`
-  para `canceled`, alinhando o status público da sessão ao do Checkout.
-  Substitua as referências a `.cancelled` por `.canceled`.
+  para `canceled`, por consistência interna com os demais recursos Noria
+  (`pix-invoice`, `pix-payment`, `transfer`, `boleto` e `boleto-payment` já
+  expõem `canceled`). Substitua as referências a `.cancelled` por `.canceled`.
 - `NoriaCheckoutSessionStatus.tryParse` continua aceitando o valor legado
   `cancelled` e o resolve para `canceled` durante esta versão, para tolerar
   servidores que ainda o enviem. Qualquer outro valor desconhecido segue

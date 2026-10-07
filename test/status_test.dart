@@ -103,6 +103,15 @@ void main() {
       expect(seen?.url.toString(), isNot(contains('secret')));
     });
 
+    test('resolves the legacy cancelled body to canceled', () async {
+      final NoriaCheckoutSessionStatus? status = await reader(
+        (http.Request request) async =>
+            http.Response('{"status":"cancelled"}', 200),
+      ).read(statusUrl, 'secret');
+
+      expect(status, NoriaCheckoutSessionStatus.canceled);
+    });
+
     for (final int code in <int>[401, 404]) {
       test('treats HTTP $code as sessionUnavailable', () async {
         await expectLater(
