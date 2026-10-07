@@ -12,8 +12,8 @@ enum NoriaCheckoutSessionStatus {
   /// The session expired before the payment completed.
   expired('expired'),
 
-  /// The customer or the merchant cancelled the session.
-  cancelled('cancelled'),
+  /// The customer or the merchant canceled the session.
+  canceled('canceled'),
 
   /// The payment was refused or failed.
   failed('failed');
@@ -28,11 +28,17 @@ enum NoriaCheckoutSessionStatus {
 
   /// Parses a wire value, returning `null` for unknown states so callers can
   /// treat them as a contract violation.
+  ///
+  /// The legacy spelling `cancelled` is still accepted and resolves to
+  /// [canceled] for one version while the Checkout finishes its rollout.
   static NoriaCheckoutSessionStatus? tryParse(String value) {
     for (final NoriaCheckoutSessionStatus status in values) {
       if (status.wireValue == value) {
         return status;
       }
+    }
+    if (value == 'cancelled') {
+      return NoriaCheckoutSessionStatus.canceled;
     }
     return null;
   }

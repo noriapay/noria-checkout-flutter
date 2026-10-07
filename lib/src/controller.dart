@@ -108,7 +108,7 @@ class NoriaCheckoutController {
   /// `completed`. It fails with:
   ///
   /// * [NoriaCheckoutErrorCode.sessionNotCompleted] when the status becomes
-  ///   `expired`, `cancelled` or `failed`;
+  ///   `expired`, `canceled` or `failed`;
   /// * [NoriaCheckoutErrorCode.returnTimeout] when the session expires first;
   /// * [NoriaCheckoutErrorCode.cancelled] when a newer call supersedes it;
   /// * [NoriaCheckoutErrorCode.pollingFailed], `sessionUnavailable` or

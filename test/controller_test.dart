@@ -298,7 +298,7 @@ void main() {
     for (final NoriaCheckoutSessionStatus terminal
         in <NoriaCheckoutSessionStatus>[
           NoriaCheckoutSessionStatus.expired,
-          NoriaCheckoutSessionStatus.cancelled,
+          NoriaCheckoutSessionStatus.canceled,
           NoriaCheckoutSessionStatus.failed,
         ]) {
       test('fails with sessionNotCompleted on ${terminal.name}', () async {

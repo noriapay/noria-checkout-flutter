@@ -22,12 +22,29 @@ void main() {
       expect(NoriaCheckoutSessionStatus.tryParse('COMPLETED'), isNull);
     });
 
+    test('exposes cancellation as canceled', () {
+      expect(NoriaCheckoutSessionStatus.canceled.wireValue, 'canceled');
+      expect(
+        NoriaCheckoutSessionStatus.tryParse('canceled'),
+        NoriaCheckoutSessionStatus.canceled,
+      );
+    });
+
+    test('still accepts the legacy cancelled spelling', () {
+      expect(
+        NoriaCheckoutSessionStatus.tryParse('cancelled'),
+        NoriaCheckoutSessionStatus.canceled,
+      );
+      expect(NoriaCheckoutSessionStatus.tryParse('Cancelled'), isNull);
+      expect(NoriaCheckoutSessionStatus.tryParse('cancel'), isNull);
+    });
+
     test('flags terminal states', () {
       expect(NoriaCheckoutSessionStatus.open.isTerminal, isFalse);
       expect(NoriaCheckoutSessionStatus.processing.isTerminal, isFalse);
       expect(NoriaCheckoutSessionStatus.completed.isTerminal, isTrue);
       expect(NoriaCheckoutSessionStatus.expired.isTerminal, isTrue);
-      expect(NoriaCheckoutSessionStatus.cancelled.isTerminal, isTrue);
+      expect(NoriaCheckoutSessionStatus.canceled.isTerminal, isTrue);
       expect(NoriaCheckoutSessionStatus.failed.isTerminal, isTrue);
     });
   });
@@ -84,6 +101,15 @@ void main() {
       );
       expect(seen?.headers['Cache-Control'], 'no-store');
       expect(seen?.url.toString(), isNot(contains('secret')));
+    });
+
+    test('resolves the legacy cancelled body to canceled', () async {
+      final NoriaCheckoutSessionStatus? status = await reader(
+        (http.Request request) async =>
+            http.Response('{"status":"cancelled"}', 200),
+      ).read(statusUrl, 'secret');
+
+      expect(status, NoriaCheckoutSessionStatus.canceled);
     });
 
     for (final int code in <int>[401, 404]) {
