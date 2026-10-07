@@ -4,6 +4,22 @@ Todas as mudanças relevantes deste SDK são documentadas aqui. O formato segue
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o versionamento
 segue [SemVer](https://semver.org/lang/pt-BR/).
 
+## [2.0.0] - 2026-10-07
+
+### Alterado
+
+- **Breaking:** `NoriaCheckoutSessionStatus.cancelled` foi renomeado para
+  `NoriaCheckoutSessionStatus.canceled`, e o valor de wire passa de `cancelled`
+  para `canceled`, alinhando o status público da sessão ao do Checkout.
+  Substitua as referências a `.cancelled` por `.canceled`.
+- `NoriaCheckoutSessionStatus.tryParse` continua aceitando o valor legado
+  `cancelled` e o resolve para `canceled` durante esta versão, para tolerar
+  servidores que ainda o enviem. Qualquer outro valor desconhecido segue
+  retornando `null`. A tolerância será removida na próxima versão.
+- `NoriaCheckoutErrorCode.cancelled` e `NoriaCheckoutCancelledException` não
+  mudam: representam a espera local superada por um novo `open` ou
+  `cancelPending`, não um status de sessão.
+
 ## [1.0.0] - 2026-09-04
 
 Primeira versão estável.
@@ -55,5 +71,6 @@ Primeira versão estável.
 
 - Versão inicial interna.
 
+[2.0.0]: https://github.com/noriapay/noria-checkout-flutter/releases/tag/v2.0.0
 [1.0.0]: https://github.com/noriapay/noria-checkout-flutter/releases/tag/v1.0.0
 [0.1.0-beta.1]: https://github.com/noriapay/noria-checkout-flutter/releases/tag/v0.1.0-beta.1

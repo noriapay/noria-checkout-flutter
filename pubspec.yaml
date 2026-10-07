@@ -2,7 +2,7 @@ name: noria_checkout
 description: >-
   Noria hosted Checkout for Flutter. Opens the Checkout in a secure platform
   browser and verifies the universal/app link that brings the customer back.
-version: 1.0.0
+version: 2.0.0
 repository: https://github.com/noriapay/noria-checkout-flutter
 issue_tracker: https://github.com/noriapay/noria-checkout-flutter/issues
 documentation: https://github.com/noriapay/noria-checkout-flutter#readme

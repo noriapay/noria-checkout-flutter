@@ -22,12 +22,29 @@ void main() {
       expect(NoriaCheckoutSessionStatus.tryParse('COMPLETED'), isNull);
     });
 
+    test('exposes cancellation as canceled', () {
+      expect(NoriaCheckoutSessionStatus.canceled.wireValue, 'canceled');
+      expect(
+        NoriaCheckoutSessionStatus.tryParse('canceled'),
+        NoriaCheckoutSessionStatus.canceled,
+      );
+    });
+
+    test('still accepts the legacy cancelled spelling', () {
+      expect(
+        NoriaCheckoutSessionStatus.tryParse('cancelled'),
+        NoriaCheckoutSessionStatus.canceled,
+      );
+      expect(NoriaCheckoutSessionStatus.tryParse('Cancelled'), isNull);
+      expect(NoriaCheckoutSessionStatus.tryParse('cancel'), isNull);
+    });
+
     test('flags terminal states', () {
       expect(NoriaCheckoutSessionStatus.open.isTerminal, isFalse);
       expect(NoriaCheckoutSessionStatus.processing.isTerminal, isFalse);
       expect(NoriaCheckoutSessionStatus.completed.isTerminal, isTrue);
       expect(NoriaCheckoutSessionStatus.expired.isTerminal, isTrue);
-      expect(NoriaCheckoutSessionStatus.cancelled.isTerminal, isTrue);
+      expect(NoriaCheckoutSessionStatus.canceled.isTerminal, isTrue);
       expect(NoriaCheckoutSessionStatus.failed.isTerminal, isTrue);
     });
   });

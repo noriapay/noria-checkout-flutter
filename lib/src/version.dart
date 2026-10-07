@@ -2,4 +2,4 @@
 ///
 /// Kept in sync with `pubspec.yaml` and verified by the test suite. Useful for
 /// telemetry and support tickets.
-const String noriaCheckoutSdkVersion = '1.0.0';
+const String noriaCheckoutSdkVersion = '2.0.0';
